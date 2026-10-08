@@ -1,0 +1,25 @@
+# systemd unit: runs the bot 24/7, starts it on boot, and restarts it if it crashes.
+# Install: sudo cp deploy/tradingbot.service /etc/systemd/system/ && sudo systemctl enable --now tradingbot
+# Logs:    journalctl -u tradingbot -f      (live)     journalctl -u tradingbot --since today
+[Unit]
+Description=Sofie, trading Discord bot
+After=network-online.target
+Wants=network-online.target
+# Never give up restarting, however often it crashes.
+StartLimitIntervalSec=0
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/discord-bot
+ExecStart=/home/ubuntu/discord-bot/.venv/bin/python main.py
+Restart=always
+RestartSec=10
+# Give it time to close cleanly on stop/reboot.
+TimeoutStopSec=20
+Environment=PYTHONUNBUFFERED=1
+# Keep a runaway process from taking down the VM.
+MemoryMax=1G
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
