@@ -138,6 +138,11 @@ class Health(commands.Cog):
         e.add_field(name="Errors (24h)", value=str(errors) + (f"\nlast: `{ERRORS.last[:150]}`" if errors and ERRORS.last else ""), inline=False)
         e.add_field(name="Servers", value=", ".join(f"{g.name} ({g.member_count:,})" for g in b.guilds) or "none")
         e.add_field(name="Text AI / vision", value=f"{'on' if b.llm.enabled else 'off'} / {'on' if b.vision.enabled else 'off'}")
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(b.config.db_path)), "update-status.txt")) as fh:
+                e.add_field(name="Self-update", value=fh.read()[:300], inline=False)
+        except OSError:
+            pass
         for g in b.guilds[:1]:
             off = [k for k in FEATURES if not feature_on(b, g.id, k)]
             if off:

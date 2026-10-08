@@ -32,6 +32,18 @@ def _get(url: str, token: str) -> bytes:
 
 
 def update() -> str:
+    """Run the update and remember the result, so the daily status DM and /health can show it."""
+    result = _update()
+    try:
+        os.makedirs(os.path.dirname(STAMP), exist_ok=True)
+        with open(os.path.join(ROOT, "data", "update-status.txt"), "w") as fh:
+            fh.write(result)
+    except OSError:
+        pass
+    return result
+
+
+def _update() -> str:
     try:
         from dotenv import load_dotenv
         load_dotenv(os.path.join(ROOT, ".env"))
