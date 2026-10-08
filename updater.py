@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import shutil
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -67,5 +68,9 @@ def update() -> str:
         with open(STAMP, "w") as fh:
             json.dump({"sha": sha, "repo": repo}, fh)
         return f"updated to {sha[:7]} ({count} files)"
+    except urllib.error.HTTPError as exc:
+        hint = {401: "UPDATE_TOKEN is wrong or expired",
+                404: f"GitHub can't see {repo}: check UPDATE_REPO, and that the token has this repo selected with Contents: Read-only"}
+        return f"failed ({exc.code}: {hint.get(exc.code, exc.reason)}), starting with the current code"
     except Exception as exc:  # never block startup on an update problem
         return f"failed, starting with the current code: {exc}"
