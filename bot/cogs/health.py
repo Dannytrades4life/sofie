@@ -164,18 +164,20 @@ class Health(commands.Cog):
     @owner_only()
     @app_commands.describe(lines="How many lines (default 80)", errors_only="Only warnings and errors")
     async def logs_cmd(self, interaction: discord.Interaction, lines: app_commands.Range[int, 10, 2000] = 80, errors_only: bool = False):
-        path = os.path.join(self.bot.config.log_dir, "bot.log")
-        if not os.path.exists(path):
-            await interaction.response.send_message("No log file yet. On the server: `journalctl -u tradingbot -n 100`.", ephemeral=True)
-            return
-        with open(path, encoding="utf-8", errors="replace") as f:
-            tail = deque((l for l in f if not errors_only or any(w in l for w in ("WARNING", "ERROR", "CRITICAL"))), maxlen=lines)
-        text = "".join(tail) or "Nothing logged."
+        text = self.log_text(lines, errors_only)
         if len(text) < 1800:
             await interaction.response.send_message(f"```\n{text}\n```", ephemeral=True)
         else:
-            await interaction.response.send_message(f"Last {len(tail)} lines:", ephemeral=True,
+            await interaction.response.send_message("Latest log lines:", ephemeral=True,
                                                     file=discord.File(io.BytesIO(text.encode()), filename="bot-log.txt"))
+
+    def log_text(self, lines: int = 80, errors_only: bool = False) -> str:
+        path = os.path.join(self.bot.config.log_dir, "bot.log")
+        if not os.path.exists(path):
+            return "No log file yet."
+        with open(path, encoding="utf-8", errors="replace") as f:
+            tail = deque((l for l in f if not errors_only or any(w in l for w in ("WARNING", "ERROR", "CRITICAL"))), maxlen=lines)
+        return "".join(tail) or "Nothing logged."
 
     @app_commands.command(name="health", description="Get the daily status check-in now")
     @app_commands.guild_only()

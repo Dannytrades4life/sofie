@@ -111,6 +111,8 @@ class TradingBot(commands.Bot):
         """The owner chatting with the bot in DMs gets a normal reply, so it's easy to check the AI is working."""
         from .control import persona
         guild = self.get_guild(self.config.guild_id) or self.guilds[0]
+        if message.content.strip().startswith("/") and await self.owner_dm_command(message, guild):
+            return
         async with message.channel.typing():
             text = await self.llm.chat(
                 persona(self, guild),
@@ -118,7 +120,28 @@ class TradingBot(commands.Bot):
                 "If they want something done, point them to the right slash command if you know it.",
                 max_tokens=220,
             )
-        await message.reply(text or "I'm here 👋 My AI isn't answering right now, so check `/health` and `/logs errors_only:true`.")
+        await message.reply(text or "I'm here 👋 My AI didn't answer that one. Type `/health` here and I'll show you why.")
+
+    async def owner_dm_command(self, message: discord.Message, guild: discord.Guild) -> bool:
+        """Slash commands typed as plain text in DMs (Discord sends them as a message, not a command): run them anyway."""
+        import io
+        parts = message.content.strip()[1:].lower().replace(":", " ").split()
+        name, args = (parts[0] if parts else ""), parts[1:]
+        health, trades = self.get_cog("Health"), self.get_cog("Trades")
+        if name in ("health", "status") and health:
+            await message.reply(embed=await health.status_embed())
+        elif name == "logs" and health:
+            text = health.log_text(60, errors_only="true" in args or "errors" in args)
+            if len(text) < 1800:
+                await message.reply(f"```\n{text}\n```")
+            else:
+                await message.reply("Latest log lines:", file=discord.File(io.BytesIO(text.encode()), filename="bot-log.txt"))
+        elif name in ("journal-link", "journallink", "journal") and trades:
+            action = next((a for a in args if a in ("new", "revoke", "adopt")), "new")
+            await message.reply(await trades.make_journal_link(guild, action))
+        else:
+            return False
+        return True
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
         await self.seed_guild(guild.id)

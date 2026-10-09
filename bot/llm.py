@@ -66,11 +66,11 @@ class LLM:
             headers = {"Content-Type": "application/json"}
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
-            body = {"model": self.model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
+            body = self._body(messages, max_tokens, temperature)
             try:
                 r = await self._client.post(f"{self.base_url}/chat/completions", headers=headers, json=body)
                 if r.status_code in (400, 404) and "model" in r.text.lower() and await self._swap_model(headers):
-                    body["model"] = self.model
+                    body = self._body(messages, max_tokens, temperature)
                     r = await self._client.post(f"{self.base_url}/chat/completions", headers=headers, json=body)
                 if r.status_code == 429:
                     retry = float(r.headers.get("retry-after", "60") or 60)
@@ -80,10 +80,23 @@ class LLM:
                 if r.status_code >= 400:
                     log.warning("LLM call failed (%s, model %s): %s", r.status_code, self.model, r.text[:300])
                     return None
-                return r.json()["choices"][0]["message"]["content"] or ""
+                choice = r.json()["choices"][0]
+                text = choice["message"].get("content") or ""
+                if not text.strip():
+                    log.warning("LLM returned no text (model %s, finish %s)", self.model, choice.get("finish_reason"))
+                return text
             except Exception as exc:
                 log.warning("LLM call failed: %s", exc)
                 return None
+
+    def _body(self, messages: list[dict], max_tokens: int, temperature: float) -> dict:
+        body = {"model": self.model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
+        if "gpt-oss" in self.model or "qwen3" in self.model:
+            # Thinking models spend tokens reasoning before they answer; without headroom the reply comes back empty.
+            body["max_tokens"] = max_tokens + 1500
+            if "gpt-oss" in self.model:
+                body["reasoning_effort"] = "low"
+        return body
 
     async def _swap_model(self, headers: dict) -> bool:
         """The model was rejected: pick the first fallback the provider still lists. Only tried once per run."""

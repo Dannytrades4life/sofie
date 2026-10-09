@@ -662,39 +662,35 @@ class Trades(commands.Cog):
     @app_commands.describe(action="new: make a link · revoke: disable all links · adopt: use a webhook you made in the channel settings")
     @app_commands.choices(action=[app_commands.Choice(name=n, value=n) for n in ("new", "revoke", "adopt")])
     async def journal_link(self, interaction: discord.Interaction, action: app_commands.Choice[str]):
-        g = interaction.guild
+        await interaction.response.send_message(await self.make_journal_link(interaction.guild, action.value), ephemeral=True)
+
+    async def make_journal_link(self, g: discord.Guild, action: str = "new") -> str:
+        """Shared by /journal-link and a typed "/journal-link" in the owner's DMs."""
         ch = get_channel(self.bot, g, "trade_submit")
         if ch is None:
-            await interaction.response.send_message("There's no #trade-submit channel yet. Run the server rebuild first.", ephemeral=True)
-            return
+            return "There's no #trade-submit channel yet. Run the server rebuild first."
         ids = self.bot.db.get_json(g.id, "journal_webhooks", []) or []
         try:
-            if action.value == "revoke":
+            if action == "revoke":
                 for wh in await ch.webhooks():
                     if wh.id in ids:
                         await wh.delete(reason="Journal link revoked by the owner")
                 await self.bot.db.set_json(g.id, "journal_webhooks", [])
-                await interaction.response.send_message("Done. Old journal links no longer work.", ephemeral=True)
-                return
-            if action.value == "adopt":
+                return "Done. Old journal links no longer work."
+            if action == "adopt":
                 hooks = [w for w in await ch.webhooks() if w.type == discord.WebhookType.incoming]
                 if not hooks:
-                    await interaction.response.send_message("No webhooks in #trade-submit. Make one in Edit Channel → Integrations → Webhooks first.", ephemeral=True)
-                    return
+                    return "No webhooks in #trade-submit. Make one in Edit Channel → Integrations → Webhooks first."
                 wh = max(hooks, key=lambda w: w.created_at)
             else:
                 wh = await ch.create_webhook(name="Journal", reason="Owner's trade journal")
         except discord.Forbidden:
-            await interaction.response.send_message(
-                "I need the **Manage Webhooks** permission for that. Or make the webhook yourself (Edit Channel → Integrations → "
-                "Webhooks → New Webhook, copy its URL) and run `/journal-link adopt`.", ephemeral=True)
-            return
+            return ("I need the **Manage Webhooks** permission for that. Or make the webhook yourself (Edit Channel → Integrations → "
+                    "Webhooks → New Webhook, copy its URL) and run `/journal-link adopt`.")
         await self.bot.db.set_json(g.id, "journal_webhooks", sorted(set(ids) | {wh.id}))
         url = f"\nYour link (keep it secret, it's like a password): ||{wh.url}||" if wh.token else ""
-        await interaction.response.send_message(
-            f"Linked webhook **{wh.name}**.{url}\nYour journal app sends trades to it as JSON, a CSV, or a screenshot "
-            "(the README has the exact format). Every trade still waits for your **Post it** tap.",
-            ephemeral=True)
+        return (f"Linked webhook **{wh.name}**.{url}\nIn your journal, press **Save & send to Sofie** and paste this link the "
+                "first time it asks. Every trade still waits for your **Post it** tap in #trade-submit.")
 
     @app_commands.command(name="import-journal", description="Import trades from a journal CSV (Tradovate, NinjaTrader, generic)")
     @app_commands.guild_only()
