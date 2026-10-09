@@ -254,6 +254,18 @@ async def publish(
     return msg
 
 
+async def _report_no_access(bot, guild, channel) -> None:
+    """Tell the owner once a day which channel the bot can't post in and how to fix it."""
+    key = f"noaccess:{channel.id}"
+    today_ = time.strftime("%Y-%m-%d")
+    if bot.db.get_setting(guild.id, key) == today_:
+        return
+    await bot.db.set_setting(guild.id, key, today_)
+    from .safety import dm_owner
+    await dm_owner(bot, content=f"⚠️ I can't post in {channel.mention} (#{channel.name}). Fix: Server Settings → Roles → drag my role "
+                                "to the top and make sure it has **Manage Roles** and **Manage Channels**. I'll sort out the channel myself after that.")
+
+
 async def send_post(bot, guild, channel, feature, *, content=None, embed=None, file=None, view=None, kind="post",
                     ref_id=None, allowed_mentions=None) -> discord.Message:
     kwargs = {}
@@ -265,7 +277,20 @@ async def send_post(bot, guild, channel, feature, *, content=None, embed=None, f
         kwargs["view"] = view
     if allowed_mentions:
         kwargs["allowed_mentions"] = allowed_mentions
-    msg = await channel.send(content=content, embed=embed, **kwargs)
+    try:
+        msg = await channel.send(content=content, embed=embed, **kwargs)
+    except discord.Forbidden:
+        # Usually a channel overwrite that hides the channel from the bot. Give the bot its own overwrite and retry once.
+        try:
+            await channel.set_permissions(guild.me, view_channel=True, send_messages=True, embed_links=True, attach_files=True,
+                                          read_message_history=True, reason="Bot can't post here; fixing its own access")
+        except discord.HTTPException:
+            await _report_no_access(bot, guild, channel)
+            raise
+        if file:
+            kwargs["file"] = discord.File(io.BytesIO(file[0]), filename=file[1])
+        msg = await channel.send(content=content, embed=embed, **kwargs)
+        log.info("fixed own access to #%s and posted", channel.name)
     await bot.db.execute(
         "INSERT OR REPLACE INTO posts (message_id, guild_id, channel_id, feature, kind, ref_id, created_at) VALUES (?,?,?,?,?,?,?)",
         msg.id, guild.id, channel.id, feature, kind, ref_id, time.time(),

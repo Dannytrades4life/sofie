@@ -27,8 +27,13 @@ def _get(url: str, token: str) -> bytes:
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "sofie-updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.read()
+    except urllib.error.HTTPError as exc:
+        if token and exc.code in (401, 403, 404):
+            return _get(url, "")  # a public repo needs no token; a stale or narrow token shouldn't block it
+        raise
 
 
 def update() -> str:
