@@ -1,5 +1,6 @@
 """Offline tests: python -m pytest tests"""
 import asyncio
+import io
 import json
 import os
 import sys
@@ -219,7 +220,7 @@ def test_bot_loads_and_commands_fit_discord_limits():
                 assert len(c.commands) <= 25, c.name
         for need in ["trade", "close", "submit", "import-journal", "edit", "edit-history", "teach", "feature", "perm", "identity",
                      "pause", "resume", "kill", "giveaway", "sponsor", "rebuild", "market", "share-trade", "challenge", "experiments",
-                     "social", "invites", "report", "rank", "leaderboard", "symbols", "display", "journal-link", "export-trades", "logs", "health"]:
+                     "social", "invites", "report", "rank", "leaderboard", "symbols", "display", "journal-link", "export-trades", "logs", "health", "expressions"]:
             assert need in names, need
         # rulebook gate works offline: "never post during FOMC" blocks when FOMC is near
         g = SimpleNamespace(id=42)
@@ -324,3 +325,49 @@ def test_jn_journal_trades_become_drafts_without_money():
         asyncio.run(run())
     finally:
         shutil.rmtree("data/journal", ignore_errors=True)
+
+
+def test_expression_pack_fits_discord_and_installs_what_fits():
+    import re as _re
+    from bot.cogs import expressions as ex
+    emojis, stickers = ex.pack_emojis(), ex.pack_stickers()
+    assert len(emojis) >= 40 and len(stickers) >= 15
+    names = [n for n, _ in emojis]
+    assert len(names) == len(set(names)) and {"win", "loss", "tp", "sl", "bull", "bear"} <= set(names)
+    for name, data in emojis:
+        assert _re.fullmatch(r"\w{2,32}", name) and len(data) <= ex.EMOJI_MAX, name
+    for s in stickers:
+        assert 2 <= len(s["name"]) <= 30 and 2 <= len(s["description"]) <= 100 and os.path.getsize(s["path"]) <= ex.STICKER_MAX
+        assert ex.Image.open(s["path"]).size == (320, 320)
+    assert ex.emoji_name("07_green-candle") == "green_candle"
+    big = io.BytesIO()
+    ex.Image.new("RGB", (900, 400), (10, 200, 90)).save(big, "PNG")
+    assert ex.Image.open(io.BytesIO(ex.fit_image(big.getvalue(), 128, ex.EMOJI_MAX))).size == (128, 128)
+
+    class FakeGuild:
+        emoji_limit, sticker_limit = 30, 5
+
+        def __init__(self):
+            self.emojis = [SimpleNamespace(name="win", animated=False)] + [SimpleNamespace(name=f"a{i}", animated=True) for i in range(9)]
+            self.stickers = []
+
+        async def create_custom_emoji(self, name, image, reason):
+            e = SimpleNamespace(name=name, animated=False)
+            self.emojis.append(e)
+            return e
+
+        async def create_sticker(self, name, description, emoji, file, reason):
+            s = SimpleNamespace(name=name)
+            self.stickers.append(s)
+            return s
+
+    async def run():
+        g = FakeGuild()
+        made, no_room = await ex.install_emojis(g)
+        assert "win" not in [e.name for e in made]  # already there
+        assert sum(1 for e in g.emojis if not e.animated) == 30 and len(no_room) == len(emojis) - 30  # animated don't use static slots
+        made, no_room = await ex.install_stickers(g)
+        assert [s.name for s in made] == [s["name"] for s in stickers[:5]] and len(no_room) == len(stickers) - 5
+        assert (await ex.install_stickers(g))[0] == []  # second run adds nothing
+
+    asyncio.run(run())

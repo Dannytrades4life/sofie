@@ -826,44 +826,12 @@ class Rebuild(commands.Cog):
         return None
 
     async def upload_emojis(self, g: discord.Guild) -> list[discord.Emoji]:
-        from ..graphics_emoji import default_emojis
-        files = dict(default_emojis())
-        import os
-        folder = "assets/emojis"
-        if os.path.isdir(folder):
-            for fn in sorted(os.listdir(folder)):
-                if fn.lower().endswith((".png", ".gif", ".jpg")):
-                    with open(os.path.join(folder, fn), "rb") as fh:
-                        files[re.sub(r"\W", "_", os.path.splitext(fn)[0])[:32]] = fh.read()
-        made = []
-        existing = {e.name for e in g.emojis}
-        for name, data in files.items():
-            if name in existing or len(g.emojis) + len(made) >= g.emoji_limit:
-                continue
-            try:
-                made.append(await g.create_custom_emoji(name=name, image=data, reason="Rebuild branding"))
-            except discord.HTTPException as e:
-                log.warning("emoji %s failed: %s", name, e)
-        return made
+        from .expressions import install_emojis
+        return (await install_emojis(g, reason="Rebuild branding"))[0]
 
     async def upload_stickers(self, g: discord.Guild) -> list[discord.GuildSticker]:
-        import os
-        folder, made = "assets/stickers", []
-        if not os.path.isdir(folder):
-            return made
-        existing = {s.name for s in g.stickers}
-        for fn in sorted(os.listdir(folder)):
-            if not fn.lower().endswith(".png") or len(g.stickers) + len(made) >= g.sticker_limit:
-                continue
-            name = os.path.splitext(fn)[0][:30]
-            if name in existing:
-                continue
-            try:
-                made.append(await g.create_sticker(name=name, description=f"{g.name} sticker", emoji="📈",
-                                                   file=discord.File(os.path.join(folder, fn)), reason="Rebuild branding"))
-            except discord.HTTPException as e:
-                log.warning("sticker %s failed: %s", name, e)
-        return made
+        from .expressions import install_stickers
+        return (await install_stickers(g, reason="Rebuild branding"))[0]
 
     async def undo_one(self, g: discord.Guild, u: dict) -> None:
         d = u["do"]
