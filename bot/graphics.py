@@ -149,3 +149,68 @@ def _when(t: dict) -> str:
         dt = datetime.now()
     s = dt.strftime("%a %b %d, %Y")
     return s
+
+
+def _fit(d: ImageDraw.ImageDraw, text: str, size: int, width: int, bold: bool = True):
+    """Shrink the font (then trim the text) until it fits the given width."""
+    while size > 22 and d.textlength(text, font=_font(size, bold)) > width:
+        size -= 2
+    while len(text) > 3 and d.textlength(text, font=_font(size, bold)) > width:
+        text = text[:-2].rstrip() + "…"
+    return text, _font(size, bold)
+
+
+def journal_card(t: dict, *, brand: str, brand_color: int, logo: bytes | None = None, chart: bytes | None = None) -> bytes:
+    """Card for a journaled trade: the journal has no prices, so it shows outcome, R, setup and discipline (never money)."""
+    res = t.get("journal_outcome") or "closed"
+    accent = {"win": GREEN, "loss": RED}.get(res, GREY)
+    img, d = _base(brand, brand_color, logo, {"win": "WIN", "loss": "LOSS", "breakeven": "BE"}.get(res, "TRADE"), accent)
+    d.rounded_rectangle([60, 120, W - 60, 560], radius=28, fill=PANEL)
+    left_w = 560 if chart else W - 200
+    side = (t.get("side") or "long").upper()
+    head = f"{t['contract']}  ·  {side}" if t.get("contract") else side
+    d.text((100, 150), head, font=_font(48), fill=WHITE)
+    if t.get("journal_session") and chart:  # no room beside the headline next to the chart
+        sess, f = _fit(d, f"{t['journal_session']} session", 26, left_w, False)
+        d.text((100, 334), sess, font=f, fill=MUTED)
+    elif t.get("journal_session"):
+        w = d.textlength(head, font=_font(48))
+        sess, f = _fit(d, f"{t['journal_session']} session", 28, max(left_w - w - 30, 120), False)
+        d.text((100 + w + 30, 162), sess, font=f, fill=MUTED)
+    rr = t.get("journal_rr")
+    big = {"win": f"+{rr:g}R" if rr else "WIN", "loss": "LOSS", "breakeven": "BREAKEVEN"}.get(res, "LOGGED")
+    big, f = _fit(d, big, 110 if not chart else 100, left_w)
+    d.text((100, 215 if chart else 225), big, font=f, fill=accent)
+    if chart:
+        try:
+            box = (W - 100 - 440, 145, W - 100, 355)
+            shot = ImageOps.fit(Image.open(io.BytesIO(chart)).convert("RGB"), (box[2] - box[0], box[3] - box[1]))
+            mask = Image.new("L", shot.size, 0)
+            ImageDraw.Draw(mask).rounded_rectangle([0, 0, shot.size[0] - 1, shot.size[1] - 1], radius=16, fill=255)
+            img.paste(shot, box[:2], mask)
+            d.rounded_rectangle(box, radius=16, outline=LINE, width=2)
+        except Exception:
+            pass
+    d.line([100, 375, W - 100, 375], fill=LINE, width=2)
+    mistake = t.get("mistake") or ""
+    plan = "Followed ✓" if not mistake or mistake.lower().startswith("none") else mistake
+    disc = t.get("discipline")
+    cells = [("Setup", (t.get("setup") or "—").split(" → ")[0]),
+             ("Discipline", f"{disc:.0f}%" if disc is not None else "—"),
+             ("Plan", plan)]
+    for i, (label, value) in enumerate(cells):
+        x = 100 + i * 360
+        d.text((x, 395), label.upper(), font=_font(20, False), fill=MUTED)
+        value, f = _fit(d, value, 36, 330)
+        d.text((x, 423), value, font=f, fill=WHITE)
+    rules = t.get("rules_followed") or []
+    if rules:
+        line, f = _fit(d, "✓ " + "   ✓ ".join(rules), 22, W - 200, False)
+        d.text((100, 500), line, font=f, fill=MUTED)
+    when = t.get("date")
+    try:
+        when = datetime.fromisoformat(when).strftime("%a %b %d, %Y") if when else _when(t)
+    except ValueError:
+        when = _when(t)
+    _footer(d, when)
+    return _png(img)

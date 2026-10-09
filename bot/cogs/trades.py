@@ -29,7 +29,7 @@ from discord.ext import commands
 from ..config import MARKET_TZ
 from ..control import feature_on, owner_only, persona, publish
 from ..futures import SESSION_EMOJI, Display, Spec, compute, fmt_dist, fmt_pct, fmt_price, fmt_pts, fmt_usd, outcome, resolve_root, session_label
-from ..graphics import entry_card, result_card
+from ..graphics import entry_card, journal_card, result_card
 from ..safety import log_action
 from ..util import ALERT_ROLE, DISCLAIMER, GREEN, GREY, ORANGE, RED, brand_color, find_role, get_channel
 
@@ -392,8 +392,8 @@ class Trades(commands.Cog):
     async def draft_embed(self, guild: discord.Guild, draft_id: int, d: dict) -> discord.Embed:
         if d.get("source") == "jn" and d.get("entry") is None:
             e = discord.Embed(title=f"Check before posting · draft #{draft_id} (journal)", color=ORANGE,
-                              description=f"**{self.journal_title(d)}**\nI couldn't read prices from the chart, so this posts as a "
-                                          "journal recap (no prices). Tap **Edit** to add symbol and prices for a full trade card.")
+                              description=f"**{self.journal_title(d)}**\nThis is the card I'll post in #trade-results. Your journal has no prices, "
+                                          "so it shows R, setup and discipline. Tap **Edit** to add prices for a price card instead.")
             e.add_field(name="Setup", value=(d.get("setup") or "—")[:200], inline=False)
             e.add_field(name="Session", value=d.get("journal_session") or "—")
             e.add_field(name="Discipline", value=f"{d['discipline']:.0f}%" if d.get("discipline") is not None else "—")
@@ -483,7 +483,8 @@ class Trades(commands.Cog):
 
     async def _logo(self, guild: discord.Guild) -> bytes | None:
         try:
-            return await guild.icon.read() if guild.icon else None
+            icon = getattr(guild, "icon", None)
+            return await icon.read() if icon else None
         except discord.HTTPException:
             return None
 
@@ -809,7 +810,7 @@ class Trades(commands.Cog):
         if d.get("contract") and d.get("entry") is not None and d.get("exit") is not None:
             await self.create_draft(guild, {k: v for k, v in d.items() if v is not None}, author_id, channel)
             return
-        for k in ("entry", "exit", "stop", "target", "contract", "entry_time", "exit_time"):
+        for k in ("entry", "exit", "stop", "target", "entry_time", "exit_time"):
             d.pop(k, None)  # half-read prices are worse than none: post the journal recap instead
         draft_id = await self.bot.db.execute(
             "INSERT INTO drafts (guild_id, kind, data, created_by, created_at) VALUES (?,?,?,?,?)",
@@ -818,10 +819,16 @@ class Trades(commands.Cog):
         for act in ("post", "edit", "cancel"):
             view.add_item(DraftButton(act, draft_id))
         e = await self.draft_embed(guild, draft_id, d)
-        file = discord.File(d["image_path"], filename="chart.png") if d.get("image_path") else None
-        if file:
-            e.set_image(url="attachment://chart.png")
-        await channel.send(embed=e, view=view, **({"file": file} if file else {}))
+        e.set_image(url="attachment://journal.png")
+        await channel.send(embed=e, view=view, file=discord.File(io.BytesIO(await self.journal_png(guild, d)), filename="journal.png"))
+
+    async def journal_png(self, guild: discord.Guild, d: dict) -> bytes:
+        chart = None
+        if d.get("image_path") and os.path.exists(d["image_path"]):
+            with open(d["image_path"], "rb") as fh:
+                chart = fh.read()
+        brand = self.bot.db.get_setting(guild.id, "brand_name") or guild.name
+        return journal_card(d, brand=brand, brand_color=brand_color(self.bot, guild), logo=await self._logo(guild), chart=chart)
 
     def journal_title(self, d: dict) -> str:
         res = d.get("journal_outcome") or "closed"
@@ -844,23 +851,12 @@ class Trades(commands.Cog):
                 d.get("journal_outcome"), "logged it.")
         e = discord.Embed(title=self.journal_title(d), description=strip_money(caption),
                           color={"win": GREEN, "loss": RED}.get(d.get("journal_outcome"), GREY))
-        if d.get("setup"):
-            e.add_field(name="Setup", value=d["setup"].split(" → ")[0][:100])
-        if d.get("journal_session"):
-            e.add_field(name="Session", value=d["journal_session"])
-        if d.get("journal_rr") and d.get("journal_outcome") == "win":
-            e.add_field(name="R:R achieved", value=f"`{d['journal_rr']:g}R`")
-        if d.get("discipline") is not None:
-            e.add_field(name="Discipline", value=f"`{d['discipline']:.0f}%` of my checklist")
         if d.get("link"):
             e.add_field(name="Chart", value=f"[open chart]({d['link']})", inline=False)
         e.set_footer(text=f"Journal · {DISCLAIMER}")
         e.timestamp = discord.utils.utcnow()
-        file = None
-        if d.get("image_path") and os.path.exists(d["image_path"]):
-            with open(d["image_path"], "rb") as fh:
-                file = (fh.read(), "chart.png")
-            e.set_image(url="attachment://chart.png")
+        file = (await self.journal_png(guild, d), "journal.png")
+        e.set_image(url="attachment://journal.png")
         msg = await publish(self.bot, guild, "trade_posts", "results", embed=e, file=file, kind="journal_result", owner_initiated=True)
         if msg is None:
             raise ValueError("No #trade-results channel found. Run the server rebuild (/rebuild) first.")
