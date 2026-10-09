@@ -283,6 +283,12 @@ the same confirm card, so nothing posts until you tap **Post it**. Send any of t
 Required: `symbol`, `side` (long/short/buy/sell), `entry`. Everything else is optional. `close_of` + `exit` closes an open trade.
 A single object without the `trades` list also works. If you made the webhook yourself in the channel settings, run `/journal-link action:adopt`.
 
+**JN — Trading Journal** has this built in: **Save & send to Sofie** on the Log page, or **📤 Send to Sofie** when editing a trade.
+The first time, it asks for the `/journal-link` URL (saved only in that browser). It sends the setup, side, outcome, R, session,
+checklist score, notes, screenshot and chart link, and **never the P&L**. Sofie reads prices from the screenshot (or a
+TradingView `/x/` snapshot link) for a full trade card; if she can't, she drafts a journal recap with outcome, R, setup and
+discipline instead. Money amounts in notes are removed. Nothing posts until you tap **Post it**.
+
 **Control panel (owner)** `/feature list|set|mode` · `/teach add|list|edit|remove` · `/perm list|set` · `/staff-roles` ·
 `/identity name avatar personality brand_name brand_color_hex` · `/display` · `/journal-link` · `/export-trades` · `/pause` `/resume` `/kill` · `/status` · `/announce`
 

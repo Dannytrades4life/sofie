@@ -1,5 +1,6 @@
 """Offline tests: python -m pytest tests"""
 import asyncio
+import json
 import os
 import sys
 from datetime import datetime, timedelta
@@ -259,3 +260,67 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("ok", name)
+
+
+def test_jn_journal_trades_become_drafts_without_money():
+    from bot.cogs.trades import parse_jn, strip_money
+    from bot.core import TradingBot
+    os.environ["DB_PATH"] = ":memory:"
+    cfg = Config.from_env(require_token=False)
+    raw = '```json\n{"source":"jn","journal_id":"ab12","side":"long","outcome":"win","rr":2.5,"setup":"Open — Rejection → use 9:30",' \
+          '"session":"NY Open (13–16)","discipline":86,"notes":"held to target, made £450 and $300","link":"https://example.com/replay"}\n```'
+    j = parse_jn(raw)
+    assert j and j["journal_id"] == "ab12" and parse_jn('{"symbol":"NQ"}') is None
+    assert "450" not in strip_money("made £450, 1.2k usd and 3 pounds") and "1.2k" not in strip_money("1.2k usd")
+
+    class Chan:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, *a, **kw):
+            self.sent.append(kw)
+
+        def typing(self):
+            class T:
+                async def __aenter__(s): return s
+                async def __aexit__(s, *a): return False
+            return T()
+
+    async def run():
+        bot = TradingBot(cfg)
+        await bot._async_setup_hook()
+        await bot.init()
+        trades = bot.get_cog("Trades")
+        await bot.seed_guild(42)
+        g = SimpleNamespace(id=42, name="T")
+        ch = Chan()
+        # no screenshot, no vision: a journal recap draft with no prices
+        await trades.journal_intake(g, 1, ch, j, [])
+        row = await bot.db.fetchone("SELECT * FROM drafts ORDER BY id DESC LIMIT 1")
+        d = json.loads(row["data"])
+        assert row["kind"] == "journal" and d["entry"] if "entry" in d else True
+        assert "450" not in json.dumps(d) and "300" not in json.dumps(d) and d["journal_rr"] == 2.5
+        assert trades.journal_title(d).startswith("✅ WIN · LONG · 2.5R")
+        embed = ch.sent[-1]["embed"]
+        assert "journal" in embed.title and "pnl" not in json.dumps(embed.to_dict()).lower()
+
+        # screenshot read by vision: becomes a normal priced draft carrying the journal's setup
+        class Img:
+            content_type = "image/png"
+            async def read(self): return b"png"
+
+        async def fake_vision(prompt, image, mime):
+            return {"trades": [{"symbol": "NQZ6", "side": "long", "entry": 21000, "exit": 21020, "stop": 20992}]}
+        bot.vision.enabled = True
+        bot.vision.vision_json = fake_vision
+        await trades.journal_intake(g, 1, ch, j, [Img()])
+        row = await bot.db.fetchone("SELECT * FROM drafts ORDER BY id DESC LIMIT 1")
+        d = json.loads(row["data"])
+        assert row["kind"] == "result" and d["points"] == 20 and d["setup"].startswith("Open") and d["r_multiple"] == 2.5
+        await bot.close()
+
+    import shutil
+    try:
+        asyncio.run(run())
+    finally:
+        shutil.rmtree("data/journal", ignore_errors=True)

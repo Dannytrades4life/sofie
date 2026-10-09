@@ -16,11 +16,13 @@ import csv
 import io
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime
 
 import discord
+import httpx
 from discord import app_commands
 from discord.ext import commands
 
@@ -47,6 +49,32 @@ VISION_PROMPT = (
     "Do not guess numbers you can't read; use null. "
     'Format: {"trades": [{...}], "notes": "anything unclear"}'
 )
+
+
+MONEY_RE = re.compile(r"(?:[£$€]\s?\d[\d,]*(?:\.\d+)?\s?[kK]?|\b\d[\d,]*(?:\.\d+)?\s?[kK]?\s?(?:usd|gbp|eur|dollars?|bucks|pounds?|quid)\b)", re.I)
+TV_SNAPSHOT_RE = re.compile(r"https?://(?:www\.)?tradingview\.com/x/([A-Za-z0-9]+)/?")
+IMAGE_URL_RE = re.compile(r"https?://\S+\.(?:png|jpe?g|webp)(?:\?\S*)?$", re.I)
+JOURNAL_DIR = "data/journal"
+
+
+def strip_money(text: str | None) -> str:
+    """Remove currency amounts so private P&L never reaches a caption or post."""
+    return re.sub(r"\s{2,}", " ", MONEY_RE.sub("[amount]", text or "")).strip()
+
+
+def parse_jn(raw: str | bytes | None) -> dict | None:
+    """A trade sent by the owner's JN journal ("Send to Sofie"): JSON with source == "jn"."""
+    if not raw:
+        return None
+    text = raw.decode("utf-8-sig", errors="replace") if isinstance(raw, bytes) else raw
+    text = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", text.strip())
+    if not text.startswith("{"):
+        return None
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) and data.get("source") == "jn" else None
 
 
 def _num(s: str | None) -> float | None:
@@ -362,6 +390,21 @@ class Trades(commands.Cog):
         await channel.send(embed=await self.draft_embed(guild, draft_id, d), view=view)
 
     async def draft_embed(self, guild: discord.Guild, draft_id: int, d: dict) -> discord.Embed:
+        if d.get("source") == "jn" and d.get("entry") is None:
+            e = discord.Embed(title=f"Check before posting · draft #{draft_id} (journal)", color=ORANGE,
+                              description=f"**{self.journal_title(d)}**\nI couldn't read prices from the chart, so this posts as a "
+                                          "journal recap (no prices). Tap **Edit** to add symbol and prices for a full trade card.")
+            e.add_field(name="Setup", value=(d.get("setup") or "—")[:200], inline=False)
+            e.add_field(name="Session", value=d.get("journal_session") or "—")
+            e.add_field(name="Discipline", value=f"{d['discipline']:.0f}%" if d.get("discipline") is not None else "—")
+            if d.get("mistake"):
+                e.add_field(name="Mistake", value=d["mistake"])
+            if d.get("notes"):
+                e.add_field(name="Notes (used for the caption only)", value=d["notes"][:1000], inline=False)
+            if d.get("link"):
+                e.add_field(name="Chart link", value=d["link"][:300], inline=False)
+            e.set_footer(text="P&L from your journal is never sent or posted.")
+            return e
         specs = await self.specs(guild.id)
         kind = "close" if d.get("close_of") else ("result" if d.get("exit") is not None else "entry")
         e = discord.Embed(title=f"Check before posting · draft #{draft_id} ({kind})", color=ORANGE)
@@ -400,6 +443,10 @@ class Trades(commands.Cog):
         return e
 
     async def publish_draft(self, guild: discord.Guild, draft_id: int, d: dict, user_id: int) -> discord.Message:
+        if d.get("source") == "jn" and d.get("entry") is None:
+            msg = await self.post_journal(guild, d)
+            await self.bot.db.execute("UPDATE drafts SET status = 'posted' WHERE id = ?", draft_id)
+            return msg
         if d.get("entry") is None or d.get("side") not in ("long", "short"):
             raise ValueError("Fix the draft first (entry price and side are required). Tap Edit.")
         if d.get("close_of"):
@@ -412,7 +459,8 @@ class Trades(commands.Cog):
     # ---- rendering (also used by /edit to regenerate posts) ----
     async def caption(self, guild: discord.Guild, d: dict, kind: str) -> str:
         show = self.display(guild.id, d)
-        keys = ["contract", "side", "entry", "exit", "stop", "target", "points", "ticks", "pnl_pct", "r_multiple", "risk_points", "session", "notes"]
+        keys = ["contract", "side", "entry", "exit", "stop", "target", "points", "ticks", "pnl_pct", "r_multiple", "risk_points", "session", "notes",
+                "setup", "discipline"]
         keys += ["pnl_usd"] if show.usd else []
         keys += ["contracts"] if show.size else []
         facts = {k: d.get(k) for k in keys}
@@ -478,6 +526,13 @@ class Trades(commands.Cog):
                 e.add_field(name="Contracts", value=f"`{d.get('contracts')}`")
             if entry_link:
                 e.add_field(name="Original call", value=f"[jump to entry]({entry_link})")
+        if d.get("source") == "jn":
+            if d.get("setup"):
+                e.add_field(name="Setup", value=d["setup"].split(" → ")[0][:100])
+            if d.get("discipline") is not None:
+                e.add_field(name="Discipline", value=f"`{d['discipline']:.0f}%`")
+            if d.get("link"):
+                e.add_field(name="Chart", value=f"[open chart]({d['link']})")
         e.set_footer(text=f"Trade #{trade_id} • {DISCLAIMER}")
         e.timestamp = discord.utils.utcnow()
         return e, png
@@ -701,9 +756,128 @@ class Trades(commands.Cog):
         self.invalidate_specs(interaction.guild.id)
         await interaction.response.send_message(f"Removed **{root.upper()}**.", ephemeral=True)
 
+    # ---- the owner's JN journal ----
+    async def _link_image(self, link: str) -> bytes | None:
+        """A TradingView snapshot link or a direct image link -> image bytes. Other links are only shown, never fetched."""
+        m = TV_SNAPSHOT_RE.match(link or "")
+        url = f"https://s3.tradingview.com/snapshots/{m.group(1)[0].lower()}/{m.group(1)}.png" if m else (
+            link if IMAGE_URL_RE.match(link or "") else None)
+        if not url:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                r = await client.get(url)
+            if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/") and len(r.content) < 8_000_000:
+                return r.content
+        except httpx.HTTPError as exc:
+            log.warning("couldn't fetch chart image %s: %s", url, exc)
+        return None
+
+    async def journal_intake(self, guild: discord.Guild, author_id: int, channel, j: dict, images: list[discord.Attachment]) -> None:
+        """Turn a journaled trade into a draft. The journal has no prices, so a screenshot (or TradingView link) is read
+        for symbol/entry/exit; without them it becomes a journal recap post (outcome, R, setup, discipline)."""
+        side = "short" if str(j.get("side", "")).lower().startswith("s") else "long"
+        d: dict = {"source": "jn", "journal_id": str(j.get("journal_id") or "")[:40], "side": side,
+                   "journal_outcome": {"win": "win", "loss": "loss", "be": "breakeven"}.get(str(j.get("outcome", "")).lower()),
+                   "journal_rr": _num(j.get("rr")), "setup": str(j.get("setup") or "")[:200],
+                   "journal_session": str(j.get("session") or "")[:60], "discipline": _num(j.get("discipline")),
+                   "rules_followed": [str(r)[:80] for r in (j.get("rules_followed") or [])][:10],
+                   "mistake": str(j.get("mistake") or "")[:80], "notes": strip_money(str(j.get("notes") or ""))[:900] or None,
+                   "link": str(j.get("link") or "")[:300] or None, "date": str(j.get("date") or "")[:10] or None}
+        image, mime = None, "image/png"
+        if images:
+            image, mime = await images[0].read(), images[0].content_type or "image/png"
+        elif d["link"]:
+            image = await self._link_image(d["link"])
+        if image:
+            os.makedirs(JOURNAL_DIR, exist_ok=True)
+            name = re.sub(r"\W", "", d["journal_id"]) or str(int(time.time()))
+            path = os.path.join(JOURNAL_DIR, f"{name}.png")
+            with open(path, "wb") as fh:
+                fh.write(image)
+            d["image_path"] = path
+            if self.bot.vision.enabled:
+                async with channel.typing():
+                    data = await self.bot.vision.vision_json(VISION_PROMPT, image, mime)
+                t = next(iter((data or {}).get("trades") or []), None)
+                if t:
+                    for k in ("entry", "exit", "stop", "target"):
+                        if _num(t.get(k)) is not None:
+                            d[k] = _num(t.get(k))
+                    if t.get("symbol"):
+                        d["contract"] = str(t["symbol"])[:20]
+                    if t.get("entry_time"):
+                        d["entry_time"] = _iso(t.get("entry_time"))
+                    if t.get("exit_time"):
+                        d["exit_time"] = _iso(t.get("exit_time"))
+        if d.get("contract") and d.get("entry") is not None and d.get("exit") is not None:
+            await self.create_draft(guild, {k: v for k, v in d.items() if v is not None}, author_id, channel)
+            return
+        for k in ("entry", "exit", "stop", "target", "contract", "entry_time", "exit_time"):
+            d.pop(k, None)  # half-read prices are worse than none: post the journal recap instead
+        draft_id = await self.bot.db.execute(
+            "INSERT INTO drafts (guild_id, kind, data, created_by, created_at) VALUES (?,?,?,?,?)",
+            guild.id, "journal", json.dumps(d), author_id, time.time())
+        view = discord.ui.View(timeout=None)
+        for act in ("post", "edit", "cancel"):
+            view.add_item(DraftButton(act, draft_id))
+        e = await self.draft_embed(guild, draft_id, d)
+        file = discord.File(d["image_path"], filename="chart.png") if d.get("image_path") else None
+        if file:
+            e.set_image(url="attachment://chart.png")
+        await channel.send(embed=e, view=view, **({"file": file} if file else {}))
+
+    def journal_title(self, d: dict) -> str:
+        res = d.get("journal_outcome") or "closed"
+        icon = {"win": "✅", "loss": "❌", "breakeven": "➖"}.get(res, "📓")
+        rr = d.get("journal_rr")
+        r_txt = f" · {rr:g}R" if rr and res == "win" else ""
+        return f"{icon} {res.upper()} · {d['side'].upper()}{r_txt}"
+
+    async def post_journal(self, guild: discord.Guild, d: dict) -> discord.Message:
+        """Publish a journal recap (no prices): outcome, R, setup, session, discipline, the chart."""
+        if not feature_on(self.bot, guild.id, "trade_posts"):
+            raise ValueError("Trade posts are switched off. `/feature set trade_posts on` to turn them back on.")
+        facts = {k: d.get(k) for k in ("side", "journal_outcome", "journal_rr", "setup", "journal_session", "discipline", "mistake", "notes")}
+        caption = await self.bot.llm.chat(
+            persona(self.bot, guild),
+            "Write a 1-2 sentence caption for a journaled futures trade recap. Use only these facts and add no numbers that "
+            "aren't here. Focus on process: the setup, following the plan, the lesson. If it's a loss, own it calmly. Never mention "
+            f"dollar or pound amounts, money made or lost, or position size.\n{json.dumps(facts)}",
+            max_tokens=120) or (d.get("notes") if "[amount]" not in (d.get("notes") or "") else None) or {"win": "plan worked. 🎯", "loss": "stopped out, it happens. on to the next one."}.get(
+                d.get("journal_outcome"), "logged it.")
+        e = discord.Embed(title=self.journal_title(d), description=strip_money(caption),
+                          color={"win": GREEN, "loss": RED}.get(d.get("journal_outcome"), GREY))
+        if d.get("setup"):
+            e.add_field(name="Setup", value=d["setup"].split(" → ")[0][:100])
+        if d.get("journal_session"):
+            e.add_field(name="Session", value=d["journal_session"])
+        if d.get("journal_rr") and d.get("journal_outcome") == "win":
+            e.add_field(name="R:R achieved", value=f"`{d['journal_rr']:g}R`")
+        if d.get("discipline") is not None:
+            e.add_field(name="Discipline", value=f"`{d['discipline']:.0f}%` of my checklist")
+        if d.get("link"):
+            e.add_field(name="Chart", value=f"[open chart]({d['link']})", inline=False)
+        e.set_footer(text=f"Journal · {DISCLAIMER}")
+        e.timestamp = discord.utils.utcnow()
+        file = None
+        if d.get("image_path") and os.path.exists(d["image_path"]):
+            with open(d["image_path"], "rb") as fh:
+                file = (fh.read(), "chart.png")
+            e.set_image(url="attachment://chart.png")
+        msg = await publish(self.bot, guild, "trade_posts", "results", embed=e, file=file, kind="journal_result", owner_initiated=True)
+        if msg is None:
+            raise ValueError("No #trade-results channel found. Run the server rebuild (/rebuild) first.")
+        await log_action(self.bot, guild, "journal_posted", f"{d.get('journal_outcome')} {d.get('side')} {d.get('setup', '')[:60]}")
+        return msg
+
     # ---- #trade-submit ----
     async def intake(self, guild: discord.Guild, author_id: int, channel, text: str, attachments: list[discord.Attachment]) -> None:
         images = [a for a in attachments if (a.content_type or "").startswith("image/")]
+        jn = parse_jn(text)
+        if jn is not None:
+            await self.journal_intake(guild, author_id, channel, jn, images)
+            return
         csvs = [a for a in attachments if a.filename.lower().endswith(".csv")]
         jsons = [a for a in attachments if a.filename.lower().endswith(".json")]
         drafts: list[dict] = []
