@@ -296,6 +296,15 @@ discipline instead. Money amounts in notes are removed. Nothing posts until you 
 `/giveaway create request:two Lucid accounts for 3 days`. It asks with buttons for anything missing (size, winners, duration, channel),
 shows a preview, and posts when you tap Post (leaders' drafts come to your DMs). Staff: `/giveaway list|end|reroll|log`; owner: `cancel|edit`.
 
+**Emojis & stickers (owner)** Sofie ships a trading pack: 41 emojis (`:tp:` `:sl:` `:be:` `:green_candle:` `:pump:` `:bull:`
+`:bear:` `:plus2r:` `:aplus:` `:diamond_hands:` `:moon:` `:nq:` `:es:` `:fomc:` `:liquidated:` `:revenge:` …) and 15 stickers
+(LFG, TP Hit, Stopped Out, Bullish, Bearish, GM Traders, Green Day, Diamond Hands …). `/expressions slots` shows your boost
+level and free slots, `/expressions install` uploads whatever fits (best ones first, never duplicates), `/expressions gallery`
+posts a showcase members can browse, and `/expressions add-emoji` / `add-sticker` turn any image into one (resized for you).
+Slots: 50 emojis (+50 animated) and 5 stickers unboosted; 100 + 15 at Level 1, 150 + 30 at Level 2, 250 + 60 at Level 3.
+Standard emojis (everything on an iPhone keyboard) already work for every member; Discord draws them in its own style.
+Redraw the pack with `python tools/make_expressions.py`.
+
 **Market** posts itself on weekdays (NY time): calendar 7:00 + alerts 15 min before events, premarket 8:45, recap 16:15, weekly performance Fri 16:45.
 Post now with `/market post`.
 

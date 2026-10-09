@@ -29,6 +29,7 @@ EXTENSIONS = [
     "bot.cogs.growth",
     "bot.cogs.giveaways",
     "bot.cogs.rebuild",
+    "bot.cogs.expressions",
     "bot.cogs.reports",
     "bot.cogs.panel",
     "bot.cogs.health",
