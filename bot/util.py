@@ -1,9 +1,13 @@
 """Shared helpers: server layout and branding, channel lookup, time helpers."""
 from __future__ import annotations
 
+import logging
+import os
 import re
+import sys
+import time
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 import discord
 
@@ -19,6 +23,16 @@ RED = 0xE74C3C
 GREY = 0x95A5A6
 GOLD = 0xF1C40F
 ORANGE = 0xE67E22
+
+
+def restart_process(delay: float = 0) -> NoReturn:
+    """Start the bot over inside the same process. Free hosts like Wispbyte don't restart a bot
+    that exits, so a crash or a dead connection would otherwise leave Sofie offline for good."""
+    if delay:
+        time.sleep(delay)
+    logging.shutdown()
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
 
 # ---------------------------------------------------------------- server layout
 CATEGORIES = ["📌 START HERE", "📊 MARKETS", "📈 TRADING", "🎓 LEARN", "💬 COMMUNITY", "🛠 STAFF"]
