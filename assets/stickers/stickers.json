@@ -1,0 +1,92 @@
+[
+ {
+  "file": "00_lfg.png",
+  "name": "LFG",
+  "emoji": "🚀",
+  "description": "Let's go! Hype for a clean entry"
+ },
+ {
+  "file": "01_tp_hit.png",
+  "name": "TP Hit",
+  "emoji": "🎯",
+  "description": "Take profit hit"
+ },
+ {
+  "file": "02_stopped_out.png",
+  "name": "Stopped Out",
+  "emoji": "🛑",
+  "description": "Stopped out, on to the next one"
+ },
+ {
+  "file": "03_bullish.png",
+  "name": "Bullish",
+  "emoji": "🐂",
+  "description": "Bullish bias"
+ },
+ {
+  "file": "04_bearish.png",
+  "name": "Bearish",
+  "emoji": "🐻",
+  "description": "Bearish bias"
+ },
+ {
+  "file": "05_gm_traders.png",
+  "name": "GM Traders",
+  "emoji": "☀️",
+  "description": "Good morning traders"
+ },
+ {
+  "file": "06_green_day.png",
+  "name": "Green Day",
+  "emoji": "💰",
+  "description": "Closed the day green"
+ },
+ {
+  "file": "07_diamond_hands.png",
+  "name": "Diamond Hands",
+  "emoji": "💎",
+  "description": "Holding the runner"
+ },
+ {
+  "file": "08_to_the_moon.png",
+  "name": "To The Moon",
+  "emoji": "🌕",
+  "description": "Straight up"
+ },
+ {
+  "file": "09_a_plus_setup.png",
+  "name": "A Plus Setup",
+  "emoji": "⭐",
+  "description": "A+ setup, textbook"
+ },
+ {
+  "file": "10_patience_pays.png",
+  "name": "Patience Pays",
+  "emoji": "⏳",
+  "description": "Wait for your level"
+ },
+ {
+  "file": "11_risk_first.png",
+  "name": "Risk First",
+  "emoji": "🛡️",
+  "description": "Protect the account first"
+ },
+ {
+  "file": "12_no_revenge.png",
+  "name": "No Revenge",
+  "emoji": "🤡",
+  "description": "No revenge trading"
+ },
+ {
+  "file": "13_log_it.png",
+  "name": "Log It",
+  "emoji": "📓",
+  "description": "Journal the trade"
+ },
+ {
+  "file": "14_wagmi.png",
+  "name": "WAGMI",
+  "emoji": "🤝",
+  "description": "We're all gonna make it"
+ }
+]
