@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import discord
 from discord import app_commands
@@ -103,6 +104,7 @@ class TradingBot(commands.Bot):
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s on %d shard(s), %d guild(s)", self.user, self.shard_count or 1, len(self.guilds))
+        os.environ.pop("SOFIE_CRASHES", None)  # connected fine, so the next crash restarts quickly again
         for g in self.guilds:
             await self.seed_guild(g.id)
         await self.set_paused(self.paused)

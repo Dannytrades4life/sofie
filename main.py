@@ -16,7 +16,7 @@ from bot.config import Config  # noqa: E402
 from bot.core import TradingBot  # noqa: E402
 from bot.util import restart_process  # noqa: E402
 
-RESTART_DELAY = 30  # seconds to wait before starting over after a crash
+RESTART_DELAYS = [30, 60, 120, 300, 600]  # back off on repeated crashes so a Discord IP block isn't made longer
 
 
 class IntentHint(logging.Filter):
@@ -72,8 +72,12 @@ def main() -> None:
         raise
     except Exception:
         # Wispbyte doesn't bring a stopped bot back, so start over ourselves (also re-runs the self-update).
-        logging.getLogger("bot").exception("Sofie crashed; restarting in %d seconds", RESTART_DELAY)
-        restart_process(RESTART_DELAY)
+        # The count rides along in the environment across restarts; on_ready resets it.
+        tries = int(os.environ.get("SOFIE_CRASHES", "0"))
+        os.environ["SOFIE_CRASHES"] = str(tries + 1)
+        delay = RESTART_DELAYS[min(tries, len(RESTART_DELAYS) - 1)]
+        logging.getLogger("bot").exception("Sofie crashed; restarting in %d seconds", delay)
+        restart_process(delay)
 
 
 if __name__ == "__main__":
