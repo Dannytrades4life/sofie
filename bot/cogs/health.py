@@ -1,5 +1,5 @@
 """Uptime and health: a daily "I'm online" DM, a DM after any unexpected restart,
-a watchdog that exits (so systemd restarts it) if the Discord connection stays dead,
+a watchdog that restarts the bot if the Discord connection stays dead,
 and /logs to read the latest log lines from Discord.
 """
 from __future__ import annotations
@@ -18,12 +18,12 @@ from discord.ext import commands, tasks
 
 from ..control import FEATURES, feature_on, identity, owner_only, run_once
 from ..safety import dm_owner
-from ..util import GREEN, ORANGE, local_now
+from ..util import GREEN, ORANGE, local_now, restart_process
 
 log = logging.getLogger(__name__)
 
 HEARTBEAT_MIN = 5
-WATCHDOG_MIN = 10  # disconnected this long -> exit and let systemd restart us
+WATCHDOG_MIN = 10  # disconnected this long -> restart ourselves
 
 
 class ErrorCounter(logging.Handler):
@@ -113,8 +113,8 @@ class Health(commands.Cog):
         else:
             self.dead_since = self.dead_since or now
             if now - self.dead_since > WATCHDOG_MIN * 60:
-                log.critical("No Discord connection for %d min; exiting so the service manager restarts me.", WATCHDOG_MIN)
-                os._exit(1)
+                log.critical("No Discord connection for %d min; restarting.", WATCHDOG_MIN)
+                restart_process()
         local = local_now(self.bot)
         if connected and 0 <= self.bot.config.status_hour <= local.hour and await run_once(self.bot, 0, "status_dm", local.strftime("%Y-%m-%d")):
             await dm_owner(self.bot, embed=await self.status_embed())

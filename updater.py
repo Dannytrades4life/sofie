@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import shutil
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -21,24 +22,32 @@ log = logging.getLogger("updater")
 ROOT = os.path.dirname(os.path.abspath(__file__))
 KEEP = {".env", "data", ".local", ".cache", ".git"}  # never overwritten or read from the download
 STAMP = os.path.join(ROOT, "data", "version.json")
+DEADLINE_S = 90  # give up on the update after this long; a slow GitHub must never keep Sofie offline
 
 
-def _get(url: str, token: str) -> bytes:
+def _get(url: str, token: str, deadline: float) -> bytes:
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "sofie-updater"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return r.read()
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = bytearray()
+            while chunk := r.read(65536):
+                data += chunk
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"download took over {DEADLINE_S}s")
+            return bytes(data)
     except urllib.error.HTTPError as exc:
         if token and exc.code in (401, 403, 404):
-            return _get(url, "")  # a public repo needs no token; a stale or narrow token shouldn't block it
+            return _get(url, "", deadline)  # a public repo needs no token; a stale or narrow token shouldn't block it
         raise
 
 
 def update() -> str:
     """Run the update and remember the result, so the daily status DM and /health can show it."""
+    print("Sofie: checking GitHub for updates...", flush=True)
     result = _update()
+    print(f"Sofie: self-update {result}", flush=True)
     try:
         os.makedirs(os.path.dirname(STAMP), exist_ok=True)
         with open(os.path.join(ROOT, "data", "update-status.txt"), "w") as fh:
@@ -58,15 +67,16 @@ def _update() -> str:
     if not repo:
         return "off"
     token, branch = os.getenv("UPDATE_TOKEN", "").strip(), os.getenv("UPDATE_BRANCH", "main").strip() or "main"
+    deadline = time.monotonic() + DEADLINE_S
     try:
-        sha = json.loads(_get(f"https://api.github.com/repos/{repo}/commits/{branch}", token))["sha"]
+        sha = json.loads(_get(f"https://api.github.com/repos/{repo}/commits/{branch}", token, deadline))["sha"]
         try:
             with open(STAMP) as fh:
                 if json.load(fh).get("sha") == sha:
                     return f"up to date ({sha[:7]})"
         except (OSError, ValueError):
             pass
-        archive = zipfile.ZipFile(io.BytesIO(_get(f"https://api.github.com/repos/{repo}/zipball/{sha}", token)))
+        archive = zipfile.ZipFile(io.BytesIO(_get(f"https://api.github.com/repos/{repo}/zipball/{sha}", token, deadline)))
         count = 0
         for info in archive.infolist():
             parts = info.filename.split("/", 1)  # strip the "owner-repo-sha/" folder GitHub adds

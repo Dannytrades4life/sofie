@@ -14,6 +14,9 @@ import discord  # noqa: E402
 from bot.cogs.health import ERRORS  # noqa: E402
 from bot.config import Config  # noqa: E402
 from bot.core import TradingBot  # noqa: E402
+from bot.util import restart_process  # noqa: E402
+
+RESTART_DELAYS = [30, 60, 120, 300, 600]  # back off on repeated crashes so a Discord IP block isn't made longer
 
 
 class IntentHint(logging.Filter):
@@ -60,7 +63,21 @@ def main() -> None:
     config = Config.from_env()
     setup_logs(config.log_dir)
     logging.getLogger("updater").info("Self-update: %s", UPDATE)
-    asyncio.run(run(config))
+    logging.getLogger("bot").info("Connecting to Discord...")
+    try:
+        asyncio.run(run(config))
+    except (discord.LoginFailure, discord.PrivilegedIntentsRequired):
+        # Restarting can't fix these: the token or the Developer Portal intents need changing first.
+        logging.getLogger("bot").critical("Discord refused to log in. Check DISCORD_TOKEN and the bot's intents, then restart.")
+        raise
+    except Exception:
+        # Wispbyte doesn't bring a stopped bot back, so start over ourselves (also re-runs the self-update).
+        # The count rides along in the environment across restarts; on_ready resets it.
+        tries = int(os.environ.get("SOFIE_CRASHES", "0"))
+        os.environ["SOFIE_CRASHES"] = str(tries + 1)
+        delay = RESTART_DELAYS[min(tries, len(RESTART_DELAYS) - 1)]
+        logging.getLogger("bot").exception("Sofie crashed; restarting in %d seconds", delay)
+        restart_process(delay)
 
 
 if __name__ == "__main__":
