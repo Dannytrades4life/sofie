@@ -63,6 +63,7 @@ def main() -> None:
     config = Config.from_env()
     setup_logs(config.log_dir)
     logging.getLogger("updater").info("Self-update: %s", UPDATE)
+    logging.getLogger("bot").info("Connecting to Discord...")
     try:
         asyncio.run(run(config))
     except (discord.LoginFailure, discord.PrivilegedIntentsRequired):
