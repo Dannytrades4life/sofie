@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from .config import Config
-from .control import load_rulebook
+from .control import QUIET_BY_DEFAULT, load_rulebook
 from .db import Database
 from .futures import DEFAULT_SYMBOLS
 from .llm import LLM
@@ -91,6 +91,11 @@ class TradingBot(commands.Bot):
                 "INSERT INTO symbols (guild_id, root, name, tick_size, tick_value, data_ticker, market_posts) VALUES (?,?,?,?,?,?,?)",
                 [(guild_id, s.root, s.name, s.tick_size, s.tick_value, s.data_ticker, int(s.market_posts)) for s in DEFAULT_SYMBOLS],
             )
+        # One-time switch to "commands and rule violations only": turn off chatter even where it was switched on before.
+        if self.db.get_setting(guild_id, "migrated:quiet_v1") is None:
+            for key in QUIET_BY_DEFAULT:
+                await self.db.set_setting(guild_id, f"feat:{key}:on", "0")
+            await self.db.set_setting(guild_id, "migrated:quiet_v1", "1")
 
     async def setup_hook(self) -> None:
         await self.init()

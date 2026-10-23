@@ -46,10 +46,12 @@ FEATURES: dict[str, tuple[str, str]] = {
     "invites": ("Invite rewards", "auto"),
     "social": ("Social content ideas", "auto"),
 }
+# Unprompted chatter: off unless the owner turns it back on with /feature set. Sofie answers commands and enforces rules.
+QUIET_BY_DEFAULT = {"chat_replies", "daily_question", "quiet_starters", "gifs", "experiments"}
 
 
 def feature_on(bot: "TradingBot", guild_id: int, key: str) -> bool:
-    return bot.db.get_setting(guild_id, f"feat:{key}:on", "1") == "1"
+    return bot.db.get_setting(guild_id, f"feat:{key}:on", "0" if key in QUIET_BY_DEFAULT else "1") == "1"
 
 
 def feature_mode(bot: "TradingBot", guild_id: int, key: str) -> str:

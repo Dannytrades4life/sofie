@@ -47,7 +47,7 @@ class Config:
     active_start_hour: int
     active_end_hour: int
     quiet_minutes: int
-    max_starters_per_day: int
+    max_starters_per_week: int
 
     @classmethod
     def from_env(cls, require_token: bool = True) -> "Config":
@@ -86,5 +86,5 @@ class Config:
             active_start_hour=_int("ACTIVE_START_HOUR", 8),
             active_end_hour=_int("ACTIVE_END_HOUR", 23),
             quiet_minutes=_int("QUIET_MINUTES", 120),
-            max_starters_per_day=_int("MAX_STARTERS_PER_DAY", 3),
+            max_starters_per_week=_int("MAX_STARTERS_PER_WEEK", 2),
         )

@@ -320,7 +320,7 @@ Post now with `/market post`.
 - [ ] Upgrade plan reviewed in DMs (check the delete list) and approved; summary DM received; channels and permissions checked as a normal member (use an alt or "View Server As Role")
 - [ ] `/staff-roles` mapped (or give people the Leaders / Mods roles); `/perm list` reviewed
 - [ ] `/teach add` your house rules (e.g. "never post during FOMC", "no posts about crypto")
-- [ ] `/feature list`: turn off anything you don't want yet; set `ask` mode on anything you want to approve first for the first week
+- [ ] `/feature list`: chat replies, the daily question, quiet-chat starters, GIFs and experiments start off so Sofie only speaks for commands and rule violations; turn off anything else you don't want yet; set `ask` mode on anything you want to approve first for the first week
 - [ ] Test a trade end to end in #trade-submit (text and a screenshot), then `/edit` it and check `/edit-history`
 - [ ] `/market post premarket plan` and `/spark lesson` to see the content style
 - [ ] `/sponsor add` your sponsors; run a small test giveaway with a 1-hour duration

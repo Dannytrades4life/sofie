@@ -2,6 +2,7 @@
 quiet-chat starters, GIFs, daily lessons and setup breakdowns, /poll and /spark."""
 from __future__ import annotations
 
+import json
 import random
 import time
 from datetime import timedelta
@@ -28,6 +29,13 @@ QUESTIONS = [
 ]
 STARTERS = ["quiet in here 👀 anyone in a trade?", "what's everyone watching into the close?", "how's the tape treating you today?",
             "drop the cleanest chart you've seen this week 📊", "who's done for the day and who's still grinding?"]
+# Rotated so starters don't all turn into "what's your NQ setup today?".
+STARTER_TOPICS = ["a trading book, podcast or video that changed how they trade", "how they handle a losing streak",
+                  "their journaling habit", "what they do away from the screens to stay sharp", "the best trade they passed on",
+                  "their weekend routine for prepping the week", "a rule they added to their plan recently", "funny or painful fill stories",
+                  "prop firm challenges and how they're going", "the market they'd never trade and why", "a small win this week, trading or not",
+                  "what got them into futures in the first place", "their screen / chart setup", "how they size up after a good run"]
+STARTER_GAP_HOURS = 48
 POLLS = [("Which market are you trading most this week?", ["NQ / MNQ", "ES / MES", "CL / MCL", "Sitting out"]),
          ("How was your week?", ["Green 🟢", "Red 🔴", "Flat ➖", "Didn't trade"]),
          ("When do you do your best trading?", ["First hour", "Midday", "Last hour", "Overnight"]),
@@ -57,8 +65,6 @@ class Engagement(commands.Cog):
         self.http = httpx.AsyncClient(timeout=15)
         self.last_activity: dict[int, float] = {}
         self.last_reply: dict[int, float] = {}
-        self.starters: dict[tuple[int, str], int] = {}
-        self.last_starter: dict[int, float] = {}
         self.scheduler.start()
 
     async def cog_unload(self):
@@ -194,25 +200,39 @@ class Engagement(commands.Cog):
         return await publish(self.bot, guild, "gifs", "memes", embed=e, kind="gif", owner_initiated=owner)
 
     async def maybe_starter(self, guild: discord.Guild, now) -> None:
+        """A rare nudge for a dead #general: at most MAX_STARTERS_PER_WEEK, 48h apart, one a day, never into an active chat
+        and never on top of a bot post nobody answered. Counts persist so restarts don't reset them."""
         cfg = self.bot.config
-        if not (cfg.active_start_hour <= now.hour < cfg.active_end_hour):
+        if cfg.max_starters_per_week <= 0 or not (cfg.active_start_hour <= now.hour < cfg.active_end_hour):
+            return
+        t, db = time.time(), self.bot.db
+        sent = [x for x in db.get_json(guild.id, "starter_times", []) if t - x < 7 * 86400]
+        if len(sent) >= cfg.max_starters_per_week or (sent and t - max(sent) < STARTER_GAP_HOURS * 3600):
             return
         channel = get_channel(self.bot, guild, "general")
         if channel is None:
             return
         last = self.last_activity.get(guild.id)
-        if last is None:
-            last = channel.last_message.created_at.timestamp() if channel.last_message else 0
-            self.last_activity[guild.id] = last
-        key, t = (guild.id, today(self.bot)), time.time()
-        if t - last < cfg.quiet_minutes * 60 or self.starters.get(key, 0) >= cfg.max_starters_per_day or t - self.last_starter.get(guild.id, 0) < 3 * 3600:
+        if last is not None and t - last < cfg.quiet_minutes * 60:
             return
+        latest = [m async for m in channel.history(limit=1)]
+        if latest:
+            if latest[0].author.bot:  # last starter or question got no reply: don't stack another on it
+                return
+            self.last_activity[guild.id] = max(last or 0, latest[0].created_at.timestamp())
+            if t - self.last_activity[guild.id] < cfg.quiet_minutes * 60:
+                return
+        recent = db.get_json(guild.id, "starter_recent", [])
+        topic = random.choice(STARTER_TOPICS)
+        avoid = ("\nDon't repeat or rephrase these earlier ones:\n" + "\n".join(f"- {r}" for r in recent)) if recent else ""
         text = await self.bot.llm.chat(persona(self.bot, guild),
-                                       f"The chat has been quiet. It's {now:%A %I%p}. Write one short natural message to get futures traders talking. Under 25 words.",
-                                       max_tokens=60) or random.choice(STARTERS)
+                                       f"The chat has been quiet for a while. Write one short, natural message to get traders talking about {topic}. "
+                                       "Under 25 words, no greeting like 'hey traders' or 'good morning', don't ask about today's setup or pre-market."
+                                       + avoid, max_tokens=60) or random.choice([x for x in STARTERS if x not in recent] or STARTERS)
         if await publish(self.bot, guild, "quiet_starters", channel, content=text, kind="starter"):
-            self.starters[key] = self.starters.get(key, 0) + 1
-            self.last_starter[guild.id] = self.last_activity[guild.id] = t
+            await db.set_setting(guild.id, "starter_times", json.dumps(sent + [t]))
+            await db.set_setting(guild.id, "starter_recent", json.dumps((recent + [text[:200]])[-6:]))
+            self.last_activity[guild.id] = t
 
     # ---- commands ----
     @app_commands.command(name="poll", description="Post a poll")
