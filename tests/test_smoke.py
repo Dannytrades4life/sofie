@@ -324,3 +324,34 @@ def test_jn_journal_trades_become_drafts_without_money():
         asyncio.run(run())
     finally:
         shutil.rmtree("data/journal", ignore_errors=True)
+
+
+def test_journal_webhook_in_trade_submit_is_read_even_if_not_linked():
+    import bot.core as core
+    from bot.core import TradingBot
+    os.environ["DB_PATH"] = ":memory:"
+    cfg = Config.from_env(require_token=False)
+    submit, other = SimpleNamespace(id=7), SimpleNamespace(id=8)
+
+    async def run():
+        bot = TradingBot(cfg)
+        await bot._async_setup_hook()
+        await bot.init()
+        await bot.seed_guild(42)
+        g = SimpleNamespace(id=42)
+        core.get_channel = lambda b, guild, key: submit if key == "trade_submit" else None
+        seen = []
+        bot.dispatch = lambda event, *a: seen.append(event)
+        msg = lambda hook, ch: SimpleNamespace(webhook_id=hook, guild=g, channel=ch, author=SimpleNamespace(bot=True))  # noqa: E731
+        await bot.on_message(msg(555, submit))  # webhook made by hand, or a link saved before data/ was reset
+        await bot.on_message(msg(555, other))   # unknown webhook elsewhere: ignored
+        await bot.db.set_json(42, "journal_webhooks", [555])
+        await bot.on_message(msg(555, other))   # a /journal-link webhook is trusted wherever it posts
+        assert seen == ["journal_message", "journal_message"]
+        await bot.close()
+
+    orig = core.get_channel
+    try:
+        asyncio.run(run())
+    finally:
+        core.get_channel = orig

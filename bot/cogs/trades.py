@@ -30,7 +30,7 @@ from ..config import MARKET_TZ
 from ..control import feature_on, owner_only, persona, publish
 from ..futures import SESSION_EMOJI, Display, Spec, compute, fmt_dist, fmt_pct, fmt_price, fmt_pts, fmt_usd, outcome, resolve_root, session_label
 from ..graphics import entry_card, journal_card, result_card
-from ..safety import log_action
+from ..safety import dm_owner, log_action
 from ..util import ALERT_ROLE, DISCLAIMER, GREEN, GREY, ORANGE, RED, brand_color, find_role, get_channel
 
 log = logging.getLogger(__name__)
@@ -922,8 +922,20 @@ class Trades(commands.Cog):
     @commands.Cog.listener()
     async def on_journal_message(self, message: discord.Message):
         submit = get_channel(self.bot, message.guild, "trade_submit")
-        if submit and message.channel.id == submit.id:
+        if not submit or message.channel.id != submit.id:
+            return
+        try:
             await self.intake(message.guild, self.bot.config.owner_id, message.channel, message.content, message.attachments)
+        except Exception as exc:
+            # Listener errors only reach the log, so a journal send used to vanish without a word.
+            log.exception("journal message %s failed", message.id)
+            why = f"{type(exc).__name__}: {exc}"[:300]
+            try:
+                await message.channel.send(f"I got that trade from your journal but couldn't make the draft ({why}). "
+                                           "Send it again, or check `/logs`.")
+            except discord.HTTPException:
+                await dm_owner(self.bot, content=f"A trade from your journal reached #trade-submit but I couldn't make the draft "
+                                                 f"or reply there ({why}). Check I can send messages, embeds and files in that channel.")
 
     @commands.Cog.listener()
     async def on_clean_message(self, message: discord.Message):
