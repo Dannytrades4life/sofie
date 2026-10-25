@@ -14,6 +14,7 @@ from .db import Database
 from .futures import DEFAULT_SYMBOLS
 from .llm import LLM
 from .safety import ApprovalButton
+from .util import get_channel
 
 log = logging.getLogger(__name__)
 
@@ -175,8 +176,17 @@ class TradingBot(commands.Bot):
             pass
 
     # ---- message pipeline ----
+    def is_journal_webhook(self, message: discord.Message) -> bool:
+        """A link made with /journal-link, or any webhook posting in #trade-submit. Only people with Manage Webhooks can
+        make one there, and every trade still waits for the owner's Post it tap. A webhook made by hand, or a link saved
+        before the data folder was reset, used to be ignored without a word."""
+        if message.webhook_id in (self.db.get_json(message.guild.id, "journal_webhooks", []) or []):
+            return True
+        submit = get_channel(self, message.guild, "trade_submit")
+        return submit is not None and message.channel.id == submit.id
+
     async def on_message(self, message: discord.Message) -> None:
-        if message.webhook_id and message.guild and message.webhook_id in (self.db.get_json(message.guild.id, "journal_webhooks", []) or []):
+        if message.webhook_id and message.guild and message.webhook_id != self.application_id and self.is_journal_webhook(message):
             # The owner's own journal app posting into #trade-submit through a webhook made with /journal-link.
             self.dispatch("journal_message", message)
             return
