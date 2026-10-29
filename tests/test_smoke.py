@@ -326,6 +326,32 @@ def test_jn_journal_trades_become_drafts_without_money():
         shutil.rmtree("data/journal", ignore_errors=True)
 
 
+def test_chatter_off_by_default():
+    from bot.control import QUIET_BY_DEFAULT, feature_on
+    settings = {(1, "feat:gifs:on"): "1"}
+    bot = SimpleNamespace(db=SimpleNamespace(get_setting=lambda g, k, d=None: settings.get((g, k), d)))
+    assert not feature_on(bot, 1, "quiet_starters") and not feature_on(bot, 1, "daily_question") and feature_on(bot, 1, "chat_replies")
+    assert feature_on(bot, 1, "moderation") and feature_on(bot, 1, "premarket") and feature_on(bot, 1, "gifs")  # owner can switch back on
+    assert {"daily_question", "quiet_starters", "gifs", "experiments"} == QUIET_BY_DEFAULT
+
+
+def test_no_automatic_posts_in_general():
+    import bot.control as control
+    from bot.control import general_blocked
+    general, lessons = SimpleNamespace(id=1), SimpleNamespace(id=2)
+    orig = control.get_channel
+    control.get_channel = lambda b, g, key: general if key == "general" else None
+    try:
+        bot = SimpleNamespace(config=Config.from_env(require_token=False))
+        assert bot.config.general_autoposts is False
+        assert general_blocked(bot, None, general) and not general_blocked(bot, None, lessons)
+        import dataclasses
+        bot.config = dataclasses.replace(bot.config, general_autoposts=True)
+        assert not general_blocked(bot, None, general)
+    finally:
+        control.get_channel = orig
+
+
 def test_journal_webhook_in_trade_submit_is_read_even_if_not_linked():
     import bot.core as core
     from bot.core import TradingBot

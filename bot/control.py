@@ -46,14 +46,22 @@ FEATURES: dict[str, tuple[str, str]] = {
     "invites": ("Invite rewards", "auto"),
     "social": ("Social content ideas", "auto"),
 }
+# Unprompted chatter: off unless the owner turns it back on with /feature set. Sofie answers people, commands and enforces rules.
+QUIET_BY_DEFAULT = {"daily_question", "quiet_starters", "gifs", "experiments"}
 
 
 def feature_on(bot: "TradingBot", guild_id: int, key: str) -> bool:
-    return bot.db.get_setting(guild_id, f"feat:{key}:on", "1") == "1"
+    return bot.db.get_setting(guild_id, f"feat:{key}:on", "0" if key in QUIET_BY_DEFAULT else "1") == "1"
 
 
 def feature_mode(bot: "TradingBot", guild_id: int, key: str) -> str:
     return bot.db.get_setting(guild_id, f"feat:{key}:mode", FEATURES[key][1])
+
+
+def general_blocked(bot: "TradingBot", guild: discord.Guild, channel) -> bool:
+    """True for an automatic post to #general while GENERAL_AUTOPOSTS is off."""
+    general = get_channel(bot, guild, "general")
+    return not bot.config.general_autoposts and general is not None and channel is not None and channel.id == general.id
 
 
 def active(bot: "TradingBot", guild_id: int, key: str) -> bool:
@@ -222,7 +230,7 @@ async def publish(
     if channel is None:
         return None
     if not owner_initiated:
-        if bot.paused or not feature_on(bot, guild.id, feature):
+        if bot.paused or not feature_on(bot, guild.id, feature) or general_blocked(bot, guild, channel):
             return None
         summary = describe or (embed.title if embed and embed.title else "") + " " + (content or (embed.description if embed else "") or "")
         ok, rule = await rules_allow(bot, guild, f"Post in #{channel.name}: {summary[:600]}")
