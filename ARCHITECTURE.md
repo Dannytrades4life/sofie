@@ -36,7 +36,7 @@ bot/llm.py      text + vision clients with template fallback
 
 | | |
 |---|---|
-| **Acts alone (logged)** | welcomes, lessons, setup breakdowns, calendar + alerts, premarket, recap, weekly performance, challenges, level/invite roles, spam/scam deletes and timeouts, raid slowmode. Off by default (no unprompted chatter; switch on with `/feature set`): chat replies, daily question / Wednesday poll, quiet-chat starters, GIFs, experiments. Nothing posts to #general automatically unless `GENERAL_AUTOPOSTS=on` |
+| **Acts alone (logged)** | welcomes, replies when people talk to her, lessons, setup breakdowns, calendar + alerts, premarket, recap, weekly performance, challenges, level/invite roles, spam/scam deletes and timeouts, raid slowmode. Off by default (no unprompted chatter; switch on with `/feature set`): daily question / Wednesday poll, quiet-chat starters, GIFs, experiments. Nothing posts to #general automatically unless `GENERAL_AUTOPOSTS=on` |
 | **Always asks you (DM buttons)** | bans, @everyone announcements, raid lockdown, every server-rebuild stage (stage 6 lists every channel it would delete and DMs a backup of each first), giveaways drafted by Leaders, every trade read from your journal |
 | **Your choice per feature** | `/feature mode <feature> ask` makes any autonomous feature wait for Approve; `/feature set <feature> off` turns it off |
 | **Your rules win** | `/teach add never post during FOMC`. Every autonomous post is checked against the rulebook (with the economic calendar as context) before it goes out, and the rulebook is injected into everything the bot writes. Held posts are logged. |

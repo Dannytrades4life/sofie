@@ -330,9 +330,9 @@ def test_chatter_off_by_default():
     from bot.control import QUIET_BY_DEFAULT, feature_on
     settings = {(1, "feat:gifs:on"): "1"}
     bot = SimpleNamespace(db=SimpleNamespace(get_setting=lambda g, k, d=None: settings.get((g, k), d)))
-    assert not feature_on(bot, 1, "quiet_starters") and not feature_on(bot, 1, "chat_replies") and not feature_on(bot, 1, "daily_question")
+    assert not feature_on(bot, 1, "quiet_starters") and not feature_on(bot, 1, "daily_question") and feature_on(bot, 1, "chat_replies")
     assert feature_on(bot, 1, "moderation") and feature_on(bot, 1, "premarket") and feature_on(bot, 1, "gifs")  # owner can switch back on
-    assert {"chat_replies", "daily_question", "quiet_starters", "gifs", "experiments"} == QUIET_BY_DEFAULT
+    assert {"daily_question", "quiet_starters", "gifs", "experiments"} == QUIET_BY_DEFAULT
 
 
 def test_no_automatic_posts_in_general():
