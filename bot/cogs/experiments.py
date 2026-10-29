@@ -15,7 +15,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from ..config import MARKET_TZ
-from ..control import active, feature_mode, owner_only, persona, publish, run_once
+from ..control import active, feature_mode, general_blocked, owner_only, persona, publish, run_once
 from ..safety import log_action
 from ..util import CHANNELS, brand_color
 
@@ -92,7 +92,7 @@ class Experiments(commands.Cog):
             ch = get_channel(self.bot, guild, ch_key)
             from ..control import rules_allow
             ok, _ = await rules_allow(self.bot, guild, f"Post a poll in #{ch.name if ch else ch_key}: {idea['content']}")
-            if ch and ok and active(self.bot, guild.id, "experiments"):
+            if ch and ok and active(self.bot, guild.id, "experiments") and not general_blocked(self.bot, guild, ch):
                 poll = discord.Poll(question=idea["content"][:300], duration=timedelta(hours=24))
                 for o in idea["options"][:5]:
                     poll.add_answer(text=str(o)[:55])

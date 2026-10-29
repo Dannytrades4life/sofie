@@ -14,7 +14,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from ..control import active, persona, staff
+from ..control import active, general_blocked, persona, staff
 from ..safety import log_action
 from ..util import INVITE_ROLES, brand_color, find_role, get_channel
 
@@ -105,6 +105,8 @@ class Growth(commands.Cog):
                     except discord.HTTPException:
                         pass
                 ch = get_channel(self.bot, guild, "invite_rewards") or get_channel(self.bot, guild, "general")
+                if ch and general_blocked(self.bot, guild, ch):
+                    ch = None
                 if ch:
                     await ch.send(f"🚀 {inviter.mention} has brought in **{n}** traders and earned **{INVITE_ROLES[n]}**! Thank you 🙏")
                 await log_action(self.bot, guild, "invites", f"{inviter} reached {n} valid invites")

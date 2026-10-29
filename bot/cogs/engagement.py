@@ -12,7 +12,7 @@ import httpx
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from ..control import active, persona, publish, run_once, staff
+from ..control import active, general_blocked, persona, publish, run_once, staff
 from ..util import DISCLAIMER, brand_color, get_channel, local_now, today
 
 QUESTIONS = [
@@ -143,7 +143,7 @@ class Engagement(commands.Cog):
         else:
             question, options = random.choice(POLLS)
         ch = get_channel(self.bot, guild, "general")
-        if ch is None or (not owner and not active(self.bot, guild.id, "daily_question")):
+        if ch is None or (not owner and (not active(self.bot, guild.id, "daily_question") or general_blocked(self.bot, guild, ch))):
             return None
         poll = discord.Poll(question=question[:300], duration=timedelta(hours=hours))
         for o in options[:10]:

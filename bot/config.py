@@ -48,6 +48,7 @@ class Config:
     active_end_hour: int
     quiet_minutes: int
     max_starters_per_week: int
+    general_autoposts: bool
 
     @classmethod
     def from_env(cls, require_token: bool = True) -> "Config":
@@ -87,4 +88,6 @@ class Config:
             active_end_hour=_int("ACTIVE_END_HOUR", 23),
             quiet_minutes=_int("QUIET_MINUTES", 120),
             max_starters_per_week=_int("MAX_STARTERS_PER_WEEK", 2),
+            # off: nothing posts to #general on its own; Sofie only speaks there when a command asks her to
+            general_autoposts=_str("GENERAL_AUTOPOSTS", "off").lower() in ("on", "1", "true", "yes"),
         )
